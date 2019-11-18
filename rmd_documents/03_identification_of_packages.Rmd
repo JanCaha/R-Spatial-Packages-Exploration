@@ -1,0 +1,76 @@
+---
+title: "Identification of packages that depend on spatial package or contain domain specific word"
+author: "Jan Caha"
+output: html_document
+---
+
+## Set up R and necessary packages
+
+```{r setup, message = FALSE, warning = FALSE}
+source("../scripts/_init.R")
+
+walk(list.files(here("functions"), full.names = TRUE), source)
+
+packages_all <- read_rds(here("data", "produced", "packages_unique.Rdata"))
+
+domain_specific_words <- read_rds(here("data", "produced", "domain_specific_words.Rdata"))
+
+important_spatial_dependencies <- read_rds(here("data", "produced", "important_spatial_dependencies.Rdata"))
+
+column_names_found_packages <- c("Package", "Contains Domain Words", "Depends on Spatial Packages", "CRAN Link")
+column_names_spatial_packages <- c("Package", "CRAN Link")
+
+cran_link <- function(x) {
+  paste0('<a href ="https://cran.r-project.org/web/packages/', 
+         x, 
+         '/index.html">',
+         x, 
+         '</a>')
+}
+
+packages_all <- packages_all %>% 
+  mutate(link = map_chr(package, cran_link))
+```
+
+## Packages in Cran Views Spatial and Spatiotemporal
+
+
+### Packages in at least one of the CRAN Views with focus on spatial data
+
+```{r}
+packages_spatial <- packages_all %>% 
+  filter(view == "SpatialViews")
+
+packages_spatial %>% 
+  select(package, link) %>% 
+  DT::datatable(escape = FALSE,
+                colnames = column_names_spatial_packages,
+                rownames = FALSE)
+```
+
+There are `r nrow(packages_spatial)` packages listed in at least one of these CRAN Views (Spatial or SpatioTemporal).
+
+## Identification of packages with relation to processing and handling of spatial data
+
+With knowledge of domain specific words and names of packages that are most often imported in spatial packages, the categorization of all packages can be done with respect to there criteria. 
+
+```{r}
+# both these functions are relatively complex, one performs text analysis and the other evalues list of packages
+# due to this complexity, this can take few moments to calculate
+
+packages_all <- packages_all %>% 
+  mutate(contains_domain_words = 
+           map_lgl(description, function(x){contain_domain_word(x, domain_specific_words)}))
+
+packages_all <- packages_all %>%
+  mutate(spatial_package_dependency =
+           map_lgl(imports_depends, function(x){has_spatial_dependency(x, important_spatial_dependencies)}))
+```
+
+## Save data
+
+```{r}
+packages_all %>% 
+  select(-link) %>% 
+  write_rds(here("data", "produced", "packages_evaluation.Rdata"))
+```

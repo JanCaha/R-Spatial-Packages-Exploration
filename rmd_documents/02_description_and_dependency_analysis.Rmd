@@ -1,0 +1,256 @@
+---
+title: "Identification of domain specific words and important spatial packages used as dependece"
+author: "Jan Caha"
+output: html_document
+---
+
+<link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.5/css/jquery.dataTables.min.css">
+<script src="https://code.jquery.com/jquery-2.1.2.min.js"></script>
+<script src="https://cdn.datatables.net/1.10.5/js/jquery.dataTables.min.js"></script>
+
+<script type="text/javascript">
+         $(document).ready(function() {
+             $("table").DataTable();
+         } );
+</script>
+
+
+## Set up R and necessary packages
+
+```{r setup, message = FALSE, warning = FALSE}
+source("../scripts/_init.R")
+
+walk(list.files(here("functions"), full.names = TRUE), source)
+
+col_names_description_TF_IDF <- c("CRAN View", "Word", "Occurences", "TF", "IDF", "TF-IDF")
+col_names_packages_TF_IDF <- c("CRAN View", "Dependency package", "Occurences", "TF", "IDF", "TF-IDF")
+
+packages_all <- read_rds(here("data", "produced", "packages_info_for_analysis.Rdata"))
+# packages_spatial = packages_all %>% 
+#   filter(view == "SpatialViews")
+```
+
+## Words frequency in description of packages type
+
+The text mining is performed using approaches described in [Text Mining with R](https://www.tidytextmining.com/), some processing steps are done using [tm](https://cran.r-project.org/web/packages/tm/index.html) package, which is focused on text mining. Text is stripped of numbers, punctuation, all English stopwords, converted into lowercase and finally the text is stemmed. The stemming is done using Porter's stemming algorithm - [description](http://snowball.tartarus.org/algorithms/porter/stemmer.html). Then the frequency of words can be calculated.
+
+```{r}
+tokens_words <- packages_all %>% 
+  select(package, description, view) %>% 
+  mutate(description = removeNumbers(description),
+         description = removePunctuation(description),
+         description = removeWords(description, stopwords("english")),
+         description = tolower(description)) %>% 
+  mutate(description = stemDocument(description)) %>% 
+  unnest_tokens(word, description, token = "words") %>%
+  group_by(view, word) %>% 
+  summarise(n = n()) %>% 
+  ungroup()
+```
+
+Top ten most often words in CRAN Views. **Tab. 1 from the manuscript.**
+
+```{r}
+tokens_words %>%
+  filter(view != "NotListed") %>% 
+  select(view, word, n) %>% 
+  arrange(desc(n)) %>% 
+  slice(1:10) %>% 
+  DT::datatable(escape = FALSE,
+                rownames = FALSE,
+                colnames = c("CRAN View", "Word", "Number of occurences"))
+```
+
+Using [tidytext](https://CRAN.R-project.org/package=tidytext) package the term frequency and inverse document frequency (tf-idf) can be calculated. Two hundreds word stems with highest TF-IDF are listed here as an example of the dataset.
+
+```{r}
+tokens_words <- tokens_words %>% 
+  bind_tf_idf(word, view, n) %>% 
+  arrange(desc(tf_idf))
+
+tokens_words %>% 
+  top_n(200) %>% 
+  DT::datatable(escape = FALSE,
+                colnames = col_names_description_TF_IDF,
+                rownames = FALSE)
+```
+
+Top ten words by TF-IDF. **Tab. 2 from the manuscript.**
+
+```{r}
+tokens_words %>% 
+  arrange(desc(tf_idf)) %>% 
+  mutate_if(is.numeric, round, digits = 4) %>% 
+  slice(1:10) %>% 
+  DT::datatable(escape = FALSE,
+                rownames = FALSE,
+                colnames =  col_names_description_TF_IDF)
+```
+
+Now we can select fifty words from SpatialViews based on TF-IDF. These are words that are much more frequent in SpatialViews packages than in descriptions of other packages.
+
+```{r}
+tokens_words %>% 
+filter(view == "SpatialViews") %>% 
+  slice(1:50) %>% 
+  DT::datatable(escape = FALSE,
+                colnames = col_names_description_TF_IDF,
+                rownames = FALSE)
+
+candidates_domain_specific_words <- tokens_words %>% 
+  filter(view == "SpatialViews") %>% 
+  slice(1:50) %>% 
+  pull(word)
+```
+
+From these fifty words a set of words that does not have to necessarily be domain specific for GIS, even though they are much more frequent in the description of spatial packages then in other descriptions, is manually selected and this set is removed from candidates for domain specific words.
+
+```{r}
+words_to_remove <- c("anim", "map", "fleme", "geometri", "pattern", "tessel", "postgresql", "interpol",
+                     "irregular", "unidata", "brunsdon", "grid", "ord", "mat")
+
+domain_specific_words <- candidates_domain_specific_words[!(candidates_domain_specific_words %in% words_to_remove)]
+```
+
+Print stems with removed words marked with `(*)`. **Listed in text of the manuscript.**
+
+```{r}
+mark_word <- function(x, list_words){
+  if (x %in% list_words) {
+    return(glue::glue("{x}(*)"))
+  }
+  x
+}
+
+purrr::map_chr(candidates_domain_specific_words, mark_word, list_words = words_to_remove) %>% 
+  glue::glue_collapse(sep = ", ") %>% 
+  print()
+```
+
+
+Unfortunately, we could only the stemmed version of words, which is good for counting frequencies but not very good for reading. Using the function *stemCompletion* from *tm* package, we can find the relevant whole words. If there is no prevalent word then it is equal to the stem.
+
+```{r}
+corpus <- packages_all %>% 
+  filter(view == "SpatialViews") %>% 
+  pull(description)
+
+corpus <- text_to_corpus(corpus) %>% 
+  simplify_corpus()
+
+stems_words <- stemCompletion(domain_specific_words, corpus, type = "prevalent")
+
+tibble(names(stems_words), stems_words) %>% 
+  DT::datatable(escape = FALSE,
+                colnames = c("Word Stem", "Prevalent Word in Descriptions of Packages"),
+                rownames = FALSE)
+```
+
+This leaves a set of `r length(domain_specific_words)` words that can be used to identify packages for handling spatial data and performing spatial analyses.
+
+### Check for domain word occuence for a specific package
+
+```{r}
+package_name = "rgdal"
+```
+
+
+The description of specific package can be searched for occurrence of domain specific words. This case shows the check for `r print(package_name)` package.
+
+````{r}
+get_words_in_package_description(package_name, packages_all, domain_specific_words) %>% 
+  DT::datatable(escape = FALSE,
+                rownames = FALSE)
+```
+
+## Dependence of spatial packages
+
+In the same way that the description of packages were analyzed the dependencies of packages can be analyzed as well. The first step is to turn the list column *imports_depends* into string with package names separated by a space.
+
+```{r}
+packages_all <- packages_all %>% 
+  mutate(dependencies = map_chr(imports_depends, paste, collapse = " "))
+```
+
+The next step is to unnest the dependencies and count occurrences of packages in individual CRAN Views. This time there is no need to remove numbers, punctuation or stem the words as the package names should be used as they are. It is even necessary to forbid transforming the package names into lowercase (in the function *unnest_tokens*) as the package names are case sensitive.
+
+```{r}
+tokens_dependencies <- packages_all %>% 
+  filter(view != "NotListed") %>% 
+  select(package, dependencies, view) %>% 
+  unnest_tokens(dependency, dependencies, token = "words", to_lower = FALSE) %>%
+  group_by(view, dependency) %>% 
+  summarise(n = n()) %>% 
+  ungroup() %>% 
+  filter(dependency != "R")
+```
+
+Now we can calculate how unique every package is as dependency for a specific CRAN View using TF-IDF.
+
+```{r}
+tokens_dependencies <- tokens_dependencies %>% 
+  bind_tf_idf(dependency, view, n) %>% 
+  arrange(desc(tf_idf))
+
+tokens_dependencies %>% 
+  DT::datatable(escape = FALSE,
+                colnames = col_names_packages_TF_IDF,
+                rownames = FALSE)
+```
+
+
+**Tab. 3 of the manuscript.**
+
+```{r}
+tokens_dependencies %>% 
+  arrange(desc(tf_idf)) %>% 
+  slice(1:10) %>% 
+  mutate_if(is.numeric, round, digits = 4) %>% 
+  DT::datatable(escape = FALSE,
+                colnames = col_names_packages_TF_IDF,
+                rownames = FALSE)
+```
+
+From the set of important dependencies among spatial packages the top 30 packages with highest TF-IDF are selected. These packages that are especially important for both Spatial and SpatioTemporal CRAN Views but not that important for other views.
+
+```{r}
+candidate_spatial_dependencies <- tokens_dependencies %>% 
+  filter(view == "SpatialViews") %>% 
+  # mutate(link = paste0("[", dependency, "](https://cran.r-project.org/web/packages/", dependency, "/index.html)")) %>% 
+  slice(1:30)
+
+candidate_spatial_dependencies %>% 
+  DT::datatable(escape = FALSE,
+                colnames = col_names_packages_TF_IDF,
+                rownames = FALSE)
+```
+
+From this set 9 packages were manually removed as they are not exclusively focused on spatial data handling, even though, that they often figure as dependencies among spatial packages. For example classInt package is often used to determine classes when maps are plotted but it does not have to be necessarily used only for spatial data. 
+
+```{r}
+candidate_spatial_dependencies <- candidate_spatial_dependencies %>% 
+  pull(dependency)
+
+dependencies_to_remove <- c("classInt", "units", "CircStats", "httr", "spam", "intervals", "XML", "deldir")
+                            
+important_spatial_dependencies <- candidate_spatial_dependencies[!(candidate_spatial_dependencies %in% dependencies_to_remove)]
+```
+
+**Listed in text of the manuscript.**
+
+```{r}
+purrr::map_chr(candidate_spatial_dependencies, mark_word, list_words = dependencies_to_remove) %>% 
+  glue::glue_collapse(sep = ", ") %>% 
+  print()
+```
+
+
+## Store selected words and packages
+
+The names important spatial packages and a list of domain specific words is stored for further use.
+
+```{r}
+write_rds(domain_specific_words ,here::here("data", "produced", "domain_specific_words.Rdata"))
+
+write_rds(important_spatial_dependencies ,here::here("data", "produced", "important_spatial_dependencies.Rdata"))
+```

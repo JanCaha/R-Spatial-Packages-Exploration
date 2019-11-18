@@ -1,0 +1,117 @@
+---
+title: "Evaluation of packages that depend on spatial package or contain domain specific word"
+author: "Jan Caha"
+output: html_document
+---
+
+```{r setup, message = FALSE, warning = FALSE}
+source("../scripts/_init.R")
+
+walk(list.files(here("functions"), full.names = TRUE), source)
+
+packages_all <- read_rds(here("data", "produced", "packages_evaluation.Rdata"))
+
+packages_not_spatial <- packages_all %>%
+  filter(view != "SpatialViews")
+
+column_names_found_packages <- c("Package", "Contains Domain Words", "Depends on Spatial Packages")
+column_names_spatial_packages <- c("Package")
+
+# cran_link <- function(x) {
+#   paste0('<a href ="https://cran.r-project.org/web/packages/', 
+#          x, 
+#          '/index.html">',
+#          x, 
+#          '</a>')
+# }
+# 
+# packages_all <- packages_not_spatial %>% 
+#   mutate(link = map_chr(package, cran_link))
+```
+
+There are `r nrow(packages_all)` and `r nrow(packages_not_spatial)` outside of SpatialViews.
+
+## Packages found based on dependence or text analysis
+
+In this section we look at all the packages not listed under __Spatial__ or __SpatioTemporal__ CRAN View that can be found based on dependency on important spatial package or by containing domain specific word.
+
+### Packages that contain domain words in description
+
+```{r}
+packages_not_spatial %>%
+  filter(contains_domain_words == TRUE) %>% 
+  select(package, contains_domain_words, spatial_package_dependency) %>% 
+  DT::datatable(escape = FALSE,
+                colnames = column_names_found_packages,
+                rownames = FALSE)
+```
+
+### Packages that depend on the important spatial packages
+
+```{r}
+packages_not_spatial %>%
+  filter(spatial_package_dependency == TRUE) %>%  
+  select(package, contains_domain_words, spatial_package_dependency) %>%
+  DT::datatable(escape = FALSE,
+                colnames = column_names_found_packages,
+                rownames = FALSE)
+```
+
+### Packages that depend on important spatial packages and contain the domain words
+
+```{r}
+packages_not_spatial %>% 
+  filter(spatial_package_dependency == TRUE, 
+         contains_domain_words == TRUE) %>% 
+  select(package, contains_domain_words, spatial_package_dependency) %>%
+  DT::datatable(escape = FALSE,
+                colnames = column_names_found_packages,
+                rownames = FALSE)
+```
+
+## Counts
+
+
+There are `r packages_not_spatial %>% filter(spatial_package_dependency == TRUE, contains_domain_words == TRUE) %>% count() %>% pull(n)` packages that were found based on both identification criteria - dependence on important spatial package and occurrence of domain word in description.
+
+There are `r packages_not_spatial %>% filter(spatial_package_dependency == TRUE) %>% count() %>% pull(n)` that have dependency on at least one important spatial package.
+
+`r packages_not_spatial %>% filter(contains_domain_words == TRUE) %>% count() %>% pull(n)` contain domain specific word from geoinformatics in description.
+
+
+At least one of the criteria meets `r packages_not_spatial %>% filter(contains_domain_words == TRUE | spatial_package_dependency == TRUE) %>% count() %>% pull(n)` packages. `r packages_not_spatial %>% filter(spatial_package_dependency == TRUE | contains_domain_words == TRUE,view != "NotListed") %>% count() %>% pull(n)` of these is in some other CRAN View besides Spatial and SpatioTemporal.
+
+## Samples
+
+Setting seed to make the selection of sample reproducible. 
+
+```{r}
+set.seed(485931)
+```
+
+**Examples for the manuscript.**
+
+```{r}
+sample <- packages_not_spatial %>% 
+  filter(contains_domain_words == TRUE) %>% 
+  sample_n(3) %>% 
+  select(package, description)
+
+sample %>% 
+  DT::datatable(escape = FALSE,
+                colnames = c("Package", "Description"),
+                rownames = FALSE)
+```
+
+```{r}
+sample <- packages_not_spatial %>% 
+  filter(spatial_package_dependency == TRUE) %>% 
+  sample_n(3) %>% 
+  mutate(imports_depends = purrr::map_chr(imports_depends, glue::glue_collapse, sep = ", ")) %>% 
+  select(package, imports_depends)
+
+sample %>% 
+  DT::datatable(escape = FALSE,
+                colnames = c("Package", "Dependency"),
+                rownames = FALSE)
+```

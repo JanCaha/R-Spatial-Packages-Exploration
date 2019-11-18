@@ -1,0 +1,212 @@
+---
+title: "Data acquisition and preparation"
+author: "Jan Caha"
+output: html_document
+---
+
+## Set up R and necessary packages
+
+```{r setup, message = FALSE, warning = FALSE}
+source("../scripts/_init.R")
+walk(list.files(here("functions"), full.names = TRUE), source)
+```
+
+## Download data
+
+
+### Obtain Package list
+
+The data were downloaded on 9. 8. 2019. The code is provided here, but all the subsequent analyses are done on the saved data.
+
+```{r}
+# packages <- httr::content(httr::GET("http://crandb.r-pkg.org/-/desc"))
+# 
+# packages_info <- tibble(package = names(packages))
+# 
+# packages_info <- packages_info %>%
+#   mutate(version = map_chr(packages, function(x) x[[1]]),
+#          title = map_chr(packages, function(x) x[[2]]))
+# 
+# rm(packages)
+# 
+# write_rds(packages_info, here::here("data", "produced", "packages_basic_info.Rdata"))
+```
+
+### Get Metadata for all packages 
+
+In ideal world this code snippet would do the work, but since it is significant number of API queries it often fails as a result of network timeout.
+
+```{r}
+# packages_info <- packages_info %>%
+#   mutate(metadata = map(package, function(x) {package(x)}))
+```
+
+This code is less elegant but more practical. If the `for` loop fails, it can be rerun from the last succesful part, if the value of variable `i` was not reseted. This leads way the data scrapping is more often succesul. The `Sys.sleep()` command is used to ensure that we do not overload the target server. Since this is time consuming step a textual progress bar is provided.
+
+```{r}
+# list_metadata <- list()
+# block_size <- 500
+# i <- 1
+# 
+# pb <- txtProgressBar(min = 1, max = nrow(packages_info))
+# 
+# while (i < nrow(packages_info)) {
+# 
+#   setTxtProgressBar(pb, i)
+# 
+#   data <- packages_info %>% slice(i:(i + block_size - 1))
+#   list_to_append <- map(data$package, function(x) {package(x)})
+#   list_metadata <- append(list_metadata, list_to_append)
+#   i <- i + block_size
+# 
+#   Sys.sleep(2)
+# }
+# 
+# close(pb)
+# 
+# write_rds(list_metadata, here::here("data", "produced", "metadata_all_packages.Rdata"))
+```
+
+## Determine package presence in CRAN Task Views
+
+Main step is to scrap the list CRAN views and then from each view a list of packages.
+
+```{r}
+# link = "https://cran.r-project.org/web/views/"
+# CRAN_views_list <- read_html(link)
+# 
+# views <- CRAN_views_list %>%
+#   html_nodes("table") %>%
+#   .[[1]] %>%
+#   html_nodes("tr") %>%
+#   html_node("a") %>%
+#   html_text()
+# 
+# views_links <- CRAN_views_list %>%
+#   html_nodes("table") %>%
+#   .[[1]] %>%
+#   html_nodes("tr") %>%
+#   html_node("a") %>%
+#   html_attr("href")
+# 
+# CRAN_views <- bind_cols(view = views, view_local_link = views_links) %>%
+#   mutate(link = paste0(link, view_local_link))
+# 
+# rm(CRAN_views_list, views, views_links)
+# 
+# package_views <- tibble(package = character(), view = character())
+# 
+# for (i in seq_len(nrow(CRAN_views))) {
+# 
+#   packages <- read_html(CRAN_views$link[i]) %>%
+#     html_nodes("ul") %>%
+#     .[[length(.) - 1]] %>%
+#     html_nodes("li") %>%
+#     html_node("a") %>%
+#     html_text()
+# 
+#   package_views <- bind_rows(package_views, tibble(package = packages, view = CRAN_views$view[i]))
+# }
+# 
+# rm(i, link)
+# 
+# write_rds(package_views, here::here("data", "produced", "package_cran_views.RData"))
+```
+
+## Load the preprepared data
+
+```{r}
+packages_info <- read_rds(here::here("data", "produced", "packages_basic_info.Rdata"))
+  
+list_metadata <- read_rds(here::here("data", "produced", "metadata_all_packages.Rdata"))
+
+package_views <- read_rds(here::here("data", "produced", "package_cran_views.RData"))
+```
+
+
+## Merge metadata with packages
+
+```{r}
+packages_info  <- packages_info %>% 
+  mutate(metadata = list_metadata)
+
+rm(list_metadata)
+```
+
+## Extract data from Metadata list column to specific columns
+
+```{r}
+packages_info <- packages_info %>% 
+  mutate(description = map_chr(metadata, function(x) {str_replace_all(x$Description, "\n", " ")} ),
+         imports_depends = map(metadata, function(x) {append(as.list(names(x$Imports)),
+                                                             as.list(names(x$Depends)))}))
+```
+
+## Remove unnecessary columns 
+
+```{r}
+packages_info <- packages_info %>% 
+  select(package, description, imports_depends)
+```
+
+## Process CRAN Views information
+
+For our topic the views [Spatial](https://cran.r-project.org/web/views/Spatial.html) and [SpatioTemporal](https://cran.r-project.org/web/views/SpatioTemporal.html) are relevant. If package is listed under either of these CRAN Views then the package is always assigned to a special view "SpatialViews".
+
+```{r}
+package_views <- package_views %>% 
+  mutate(view = case_when(
+    view ==  "Spatial" ~ "SpatialViews",
+    view == "SpatioTemporal" ~ "SpatialViews",
+    TRUE ~ view)
+  )
+```
+
+
+```{r}
+spatial_packages_names <- package_views %>% 
+  filter(view == "SpatialViews") %>% 
+  pull(package) %>% 
+  unique()
+```
+
+### Merging information about packages and CRAN Views
+
+The presence of package in CRAN Views can be linked to other package information. The packages not listed in any CRAN View are marked as "NotListed".
+
+```{r}
+packages_info <- packages_info %>% 
+  left_join(package_views, by = "package")
+
+packages_info <- packages_info %>% 
+  mutate(view = if_else(is.na(view), "NotListed", view))
+```
+
+Number of unique Views listed is `r packages_info$view %>% unique() %>% sort() %>% length()`.
+
+## Storing the output data
+
+Replace unicode symbols (unwanted and irrelevant) in package description with empty space.
+
+```{r}
+packages_info <- packages_info %>% 
+  mutate(description = str_replace_all(description, "<[U|\\+|0-9|a-z]+>", " "))
+```
+
+The resulting datasets are saved for further use.
+
+Unique list of packages, CRAN View is the first one that occurs unless it is "SpatialViews", that is listed allways under this specific view.
+
+```{r}
+packages_info %>% 
+  distinct(package, .keep_all = TRUE) %>% 
+  mutate(view = if_else(package %in% spatial_packages_names, "SpatialViews", view)) %>% 
+  write_rds(here::here("data", "produced", "packages_unique.Rdata"))
+```
+
+Packages and respective views, some packages listed more than once.
+
+```{r}
+packages_info %>% 
+  write_rds(here::here("data", "produced", "packages_info_for_analysis.Rdata"))
+```
