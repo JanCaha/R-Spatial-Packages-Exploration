@@ -29,7 +29,8 @@ The data were downloaded on 9. 8. 2019. The code is provided here, but all the s
 # 
 # rm(packages)
 # 
-# write_rds(packages_info, here::here("data", "produced", "packages_basic_info.Rdata"))
+# packages_info %>% 
+#   write_rds(here::here("data", "produced", "packages_basic_info.Rdata"))
 ```
 
 ### Get Metadata for all packages 
@@ -64,7 +65,8 @@ This code is less elegant but more practical. If the `for` loop fails, it can be
 # 
 # close(pb)
 # 
-# write_rds(list_metadata, here::here("data", "produced", "metadata_all_packages.Rdata"))
+# list_metadata %>% 
+#   write_rds(here::here("data", "produced", "metadata_all_packages.Rdata"))
 ```
 
 ## Determine package presence in CRAN Task Views
@@ -110,7 +112,8 @@ Main step is to scrap the list CRAN views and then from each view a list of pack
 # 
 # rm(i, link)
 # 
-# write_rds(package_views, here::here("data", "produced", "package_cran_views.RData"))
+# package_views %>% 
+#   write_rds(here::here("data", "produced", "package_cran_views.RData"))
 ```
 
 ## Load the preprepared data

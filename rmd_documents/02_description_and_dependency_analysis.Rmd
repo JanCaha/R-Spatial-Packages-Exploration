@@ -107,7 +107,7 @@ From these fifty words a set of words that does not have to necessarily be domai
 
 ```{r}
 words_to_remove <- c("anim", "map", "fleme", "geometri", "pattern", "tessel", "postgresql", "interpol",
-                     "irregular", "unidata", "brunsdon", "grid", "ord", "mat")
+                     "irregular", "unidata", "behaviour", "argo", "envelop", "acoust")
 
 domain_specific_words <- candidates_domain_specific_words[!(candidates_domain_specific_words %in% words_to_remove)]
 ```
@@ -231,7 +231,7 @@ From this set 9 packages were manually removed as they are not exclusively focus
 candidate_spatial_dependencies <- candidate_spatial_dependencies %>% 
   pull(dependency)
 
-dependencies_to_remove <- c("classInt", "units", "CircStats", "httr", "spam", "intervals", "XML", "deldir")
+dependencies_to_remove <- c("classInt", "units", "CircStats", "httr", "spam", "intervals", "deldir", "lubridate")
                             
 important_spatial_dependencies <- candidate_spatial_dependencies[!(candidate_spatial_dependencies %in% dependencies_to_remove)]
 ```
